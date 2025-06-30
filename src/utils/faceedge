@@ -1,0 +1,674 @@
+import * as THREE from 'three';
+import { Vec3 } from './math'; // Assuming Vec3 is still relevant, though not used in these specific methods
+import { ExtrusionGizmo } from './ExtrusionGizmo';
+
+export interface SelectedFace {
+    id: string;
+    objectId: string;
+    faceIndex: number;
+    normal: THREE.Vector3;
+    center: THREE.Vector3;
+    vertices: THREE.Vector3[]; // Ensure these are in world coordinates
+    area: number;
+}
+
+export interface SelectedEdge {
+    id: string;
+    objectId: string;
+    edgeIndex: number;
+    start: THREE.Vector3;
+    end: THREE.Vector3;
+    length: number;
+    direction: THREE.Vector3;
+}
+
+export interface FaceEdgeHighlight {
+    faces: THREE.Mesh[];
+    edges: THREE.LineSegments[];
+}
+
+export class FaceEdgeSelector {
+    private scene: THREE.Scene;
+    private camera: THREE.PerspectiveCamera;
+    private raycaster: THREE.Raycaster;
+    private mouse: THREE.Vector2;
+
+    private selectedFaces: Map<string, SelectedFace> = new Map();
+    private selectedEdges: Map<string, SelectedEdge> = new Map();
+    private highlightObjects: FaceEdgeHighlight = { faces: [], edges: [] };
+
+    private faceHighlightMaterial: THREE.MeshBasicMaterial;
+    private edgeHighlightMaterial: THREE.LineBasicMaterial;
+    private hoverFaceMaterial: THREE.MeshBasicMaterial;
+    private hoverEdgeMaterial: THREE.LineBasicMaterial;
+
+    private isActive: boolean = false;
+    private hoveredFace: THREE.Mesh | null = null;
+    private hoveredEdge: THREE.LineSegments | null = null;
+
+    // Extrusion gizmo
+    private extrusionGizmo: ExtrusionGizmo;
+    private onExtrusionCallback?: (faceId: string, distance: number) => void;
+
+    constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
+        this.scene = scene;
+        this.camera = camera;
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+
+        // Create materials for highlighting
+        this.faceHighlightMaterial = new THREE.MeshBasicMaterial({
+            color: 0x4ade80,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide,
+            depthTest: false
+        });
+
+        this.edgeHighlightMaterial = new THREE.LineBasicMaterial({
+            color: 0x22c55e,
+            linewidth: 3,
+            transparent: true,
+            opacity: 0.8
+        });
+
+        this.hoverFaceMaterial = new THREE.MeshBasicMaterial({
+            color: 0x60a5fa,
+            transparent: true,
+            opacity: 0.2,
+            side: THREE.DoubleSide,
+            depthTest: false
+        });
+
+        this.hoverEdgeMaterial = new THREE.LineBasicMaterial({
+            color: 0x3b82f6,
+            linewidth: 2,
+            transparent: true,
+            opacity: 0.6
+        });
+
+        // Initialize extrusion gizmo
+        this.extrusionGizmo = new ExtrusionGizmo(scene, camera);
+        this.extrusionGizmo.setDragCallback((faceId, distance) => {
+            if (this.onExtrusionCallback) {
+                this.onExtrusionCallback(faceId, distance);
+            }
+        });
+    }
+
+    setActive(active: boolean): void {
+        this.isActive = active;
+        if (!active) {
+            this.clearHover();
+            this.clearSelection();
+            this.extrusionGizmo.hide();
+        }
+    }
+
+    isSelectionActive(): boolean {
+        return this.isActive;
+    }
+
+    setExtrusionCallback(callback: (faceId: string, distance: number) => void): void {
+        this.onExtrusionCallback = callback;
+    }
+
+    setRenderCallback(callback: () => void): void {
+        this.extrusionGizmo.setRenderCallback(callback);
+    }
+
+    handleMouseMove(event: MouseEvent, canvas: HTMLCanvasElement, objects: THREE.Mesh[]): boolean {
+        if (!this.isActive) return false;
+
+        // Check if gizmo is handling the mouse move
+        if (this.extrusionGizmo.handleMouseMove(event, canvas)) {
+            return true; // Gizmo is handling, prevent other interactions
+        }
+
+        const rect = canvas.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        this.updateHover(objects);
+        return false;
+    }
+
+    handleMouseDown(event: MouseEvent, canvas: HTMLCanvasElement): boolean {
+        if (!this.isActive) return false;
+
+        // Check if gizmo is handling the mouse down
+        if (this.extrusionGizmo.handleMouseDown(event, canvas)) {
+            return true; // Gizmo is handling, prevent other interactions
+        }
+
+        return false;
+    }
+
+    handleMouseUp(event: MouseEvent): boolean {
+        if (!this.isActive) return false;
+
+        // Check if gizmo is handling the mouse up
+        if (this.extrusionGizmo.handleMouseUp(event)) {
+            return true; // Gizmo is handling
+        }
+
+        return false;
+    }
+
+    handleClick(event: MouseEvent, canvas: HTMLCanvasElement, objects: THREE.Mesh[]): boolean {
+        if (!this.isActive) return false;
+
+        // Don't handle click if gizmo is dragging
+        if (this.extrusionGizmo.isGizmoDragging()) {
+            return false;
+        }
+
+        const rect = canvas.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        return this.selectFaceOrEdge(objects);
+    }
+
+    private updateHover(objects: THREE.Mesh[]): void {
+        this.clearHover();
+
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(objects, false);
+
+        if (intersects.length > 0) {
+            const intersection = intersects[0];
+            const mesh = intersection.object as THREE.Mesh;
+
+            if (intersection.face) {
+                // Ensure the geometry is a BufferGeometry for vertex access
+                if (!(mesh.geometry instanceof THREE.BufferGeometry)) {
+                    console.warn("Hovered mesh does not have BufferGeometry. Skipping hover highlight.");
+                    return;
+                }
+                this.createHoverFace(mesh, intersection.face, intersection.faceIndex!);
+            }
+
+            // Also create edge highlights for the face
+            if (intersection.face && intersection.faceIndex !== undefined) {
+                 if (!(mesh.geometry instanceof THREE.BufferGeometry)) return; // Already checked
+                 this.createHoverEdges(mesh, intersection.face, intersection.faceIndex);
+            }
+        }
+    }
+
+    private selectFaceOrEdge(objects: THREE.Mesh[]): boolean {
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(objects, false);
+
+        if (intersects.length > 0) {
+            const intersection = intersects[0];
+            const mesh = intersection.object as THREE.Mesh;
+
+            if (intersection.face && intersection.faceIndex !== undefined) {
+                // Ensure the geometry is a BufferGeometry for vertex access
+                if (!(mesh.geometry instanceof THREE.BufferGeometry)) {
+                    console.warn("Selected mesh does not have BufferGeometry. Skipping face selection.");
+                    return false;
+                }
+
+                const objectId = mesh.userData.id || 'unknown';
+                const faceId = `${objectId}-face-${intersection.faceIndex}`;
+
+                if (this.selectedFaces.has(faceId)) {
+                    // Deselect if already selected
+                    this.deselectFace(faceId);
+                } else {
+                    // Clear previous selection and select new face
+                    this.clearSelection();
+                    this.selectFace(mesh, intersection.face, intersection.faceIndex, objectId);
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private selectFace(mesh: THREE.Mesh, face: THREE.Face, faceIndex: number, objectId: string): void {
+        const geometry = mesh.geometry as THREE.BufferGeometry;
+        const position = geometry.attributes.position;
+
+        // Get face vertices (in local space first)
+        const vertices: THREE.Vector3[] = [];
+        const indices = geometry.index;
+
+        if (indices) {
+            const a = indices.getX(faceIndex * 3);
+            const b = indices.getX(faceIndex * 3 + 1);
+            const c = indices.getX(faceIndex * 3 + 2);
+
+            vertices.push(
+                new THREE.Vector3().fromBufferAttribute(position, a),
+                new THREE.Vector3().fromBufferAttribute(position, b),
+                new THREE.Vector3().fromBufferAttribute(position, c)
+            );
+        } else {
+            // For non-indexed geometries
+            vertices.push(
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3),
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3 + 1),
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3 + 2)
+            );
+        }
+
+        // Transform vertices to world space
+        const worldVertices = vertices.map(v => v.clone().applyMatrix4(mesh.matrixWorld));
+
+        // Calculate face properties
+        // Ensure normal is transformed correctly to world space
+        const worldNormal = face.normal.clone().transformDirection(mesh.matrixWorld).normalize();
+        const center = new THREE.Vector3()
+            .add(worldVertices[0])
+            .add(worldVertices[1])
+            .add(worldVertices[2])
+            .divideScalar(3);
+
+        const area = this.calculateTriangleArea(worldVertices[0], worldVertices[1], worldVertices[2]);
+
+        const faceId = `${objectId}-face-${faceIndex}`;
+        const selectedFace: SelectedFace = {
+            id: faceId,
+            objectId,
+            faceIndex,
+            normal: worldNormal, // Use the world-transformed normal
+            center,
+            vertices: worldVertices,
+            area
+        };
+
+        this.selectedFaces.set(faceId, selectedFace);
+        this.createFaceHighlight(selectedFace);
+        this.createEdgeHighlights(selectedFace);
+
+        // Show extrusion gizmo for the selected face
+        this.extrusionGizmo.showForFace(selectedFace);
+
+        console.log('Face selected, showing extrusion gizmo for:', faceId);
+        console.log('SelectedFace data:', selectedFace);
+    }
+
+    private deselectFace(faceId: string): void {
+        this.selectedFaces.delete(faceId);
+        this.updateHighlights();
+
+        // Hide extrusion gizmo when no face is selected
+        if (this.selectedFaces.size === 0) {
+            this.extrusionGizmo.hide();
+        }
+        console.log('Face deselected:', faceId);
+    }
+
+    private createFaceHighlight(face: SelectedFace): void {
+        const geometry = new THREE.BufferGeometry();
+        const vertices = new Float32Array(9); // 3 vertices * 3 components
+
+        for (let i = 0; i < 3; i++) {
+            vertices[i * 3] = face.vertices[i].x;
+            vertices[i * 3 + 1] = face.vertices[i].y;
+            vertices[i * 3 + 2] = face.vertices[i].z;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        geometry.computeVertexNormals(); // Good practice for lighting, though not critical for MeshBasicMaterial
+
+        const highlightMesh = new THREE.Mesh(geometry, this.faceHighlightMaterial);
+        highlightMesh.renderOrder = 1000; // Render on top
+        highlightMesh.userData = { type: 'face-highlight', faceId: face.id };
+
+        this.scene.add(highlightMesh);
+        this.highlightObjects.faces.push(highlightMesh);
+    }
+
+    private createEdgeHighlights(face: SelectedFace): void {
+        const vertices = face.vertices;
+        const edges = [
+            [vertices[0], vertices[1]],
+            [vertices[1], vertices[2]],
+            [vertices[2], vertices[0]]
+        ];
+
+        edges.forEach((edge, index) => {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(6); // 2 vertices * 3 components
+
+            positions[0] = edge[0].x;
+            positions[1] = edge[0].y;
+            positions[2] = edge[0].z;
+            positions[3] = edge[1].x;
+            positions[4] = edge[1].y;
+            positions[5] = edge[1].z;
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            const edgeLine = new THREE.LineSegments(geometry, this.edgeHighlightMaterial);
+            edgeLine.renderOrder = 1001; // Render on top of faces
+            edgeLine.userData = { type: 'edge-highlight', faceId: face.id, edgeIndex: index };
+
+            this.scene.add(edgeLine);
+            this.highlightObjects.edges.push(edgeLine);
+        });
+    }
+
+    private createHoverFace(mesh: THREE.Mesh, face: THREE.Face, faceIndex: number): void {
+        const geometry = mesh.geometry as THREE.BufferGeometry;
+        const position = geometry.attributes.position;
+
+        const vertices: THREE.Vector3[] = [];
+        const indices = geometry.index;
+
+        if (indices) {
+            const a = indices.getX(faceIndex * 3);
+            const b = indices.getX(faceIndex * 3 + 1);
+            const c = indices.getX(faceIndex * 3 + 2);
+
+            vertices.push(
+                new THREE.Vector3().fromBufferAttribute(position, a),
+                new THREE.Vector3().fromBufferAttribute(position, b),
+                new THREE.Vector3().fromBufferAttribute(position, c)
+            );
+        } else {
+            vertices.push(
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3),
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3 + 1),
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3 + 2)
+            );
+        }
+
+        // Transform to world space
+        const worldVertices = vertices.map(v => v.clone().applyMatrix4(mesh.matrixWorld));
+
+        const hoverGeometry = new THREE.BufferGeometry();
+        const hoverVertices = new Float32Array(9);
+
+        for (let i = 0; i < 3; i++) {
+            hoverVertices[i * 3] = worldVertices[i].x;
+            hoverVertices[i * 3 + 1] = worldVertices[i].y;
+            hoverVertices[i * 3 + 2] = worldVertices[i].z;
+        }
+
+        hoverGeometry.setAttribute('position', new THREE.BufferAttribute(hoverVertices, 3));
+        hoverGeometry.computeVertexNormals();
+
+        this.hoveredFace = new THREE.Mesh(hoverGeometry, this.hoverFaceMaterial);
+        this.hoveredFace.renderOrder = 999;
+        this.scene.add(this.hoveredFace);
+    }
+
+    private createHoverEdges(mesh: THREE.Mesh, face: THREE.Face, faceIndex: number): void {
+        const geometry = mesh.geometry as THREE.BufferGeometry;
+        const position = geometry.attributes.position;
+
+        const vertices: THREE.Vector3[] = [];
+        const indices = geometry.index;
+
+        if (indices) {
+            const a = indices.getX(faceIndex * 3);
+            const b = indices.getX(faceIndex * 3 + 1);
+            const c = indices.getX(faceIndex * 3 + 2);
+
+            vertices.push(
+                new THREE.Vector3().fromBufferAttribute(position, a),
+                new THREE.Vector3().fromBufferAttribute(position, b),
+                new THREE.Vector3().fromBufferAttribute(position, c)
+            );
+        } else {
+            vertices.push(
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3),
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3 + 1),
+                new THREE.Vector3().fromBufferAttribute(position, faceIndex * 3 + 2)
+            );
+        }
+
+        // Transform to world space
+        const worldVertices = vertices.map(v => v.clone().applyMatrix4(mesh.matrixWorld));
+
+        const edges = [
+            [worldVertices[0], worldVertices[1]],
+            [worldVertices[1], worldVertices[2]],
+            [worldVertices[2], worldVertices[0]]
+        ];
+
+        const edgeGeometry = new THREE.BufferGeometry();
+        const edgePositions = new Float32Array(18); // 3 edges * 2 vertices * 3 components
+
+        let index = 0;
+        edges.forEach(edge => {
+            edgePositions[index++] = edge[0].x;
+            edgePositions[index++] = edge[0].y;
+            edgePositions[index++] = edge[0].z;
+            edgePositions[index++] = edge[1].x;
+            edgePositions[index++] = edge[1].y;
+            edgePositions[index++] = edge[1].z;
+        });
+
+        edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+
+        this.hoveredEdge = new THREE.LineSegments(edgeGeometry, this.hoverEdgeMaterial);
+        this.hoveredEdge.renderOrder = 1000;
+        this.scene.add(this.hoveredEdge);
+    }
+
+    private clearHover(): void {
+        if (this.hoveredFace) {
+            this.scene.remove(this.hoveredFace);
+            this.hoveredFace.geometry.dispose();
+            // Important: Dispose material if it's unique to this mesh,
+            // but here it's shared, so don't dispose.
+            this.hoveredFace = null;
+        }
+
+        if (this.hoveredEdge) {
+            this.scene.remove(this.hoveredEdge);
+            this.hoveredEdge.geometry.dispose();
+            // Important: Dispose material if it's unique to this mesh,
+            // but here it's shared, so don't dispose.
+            this.hoveredEdge = null;
+        }
+    }
+
+    private updateHighlights(): void {
+        this.clearHighlights();
+
+        // Recreate highlights for selected faces
+        this.selectedFaces.forEach(face => {
+            this.createFaceHighlight(face);
+            this.createEdgeHighlights(face);
+        });
+    }
+
+    private clearHighlights(): void {
+        this.highlightObjects.faces.forEach(mesh => {
+            this.scene.remove(mesh);
+            mesh.geometry.dispose();
+        });
+
+        this.highlightObjects.edges.forEach(line => {
+            this.scene.remove(line);
+            line.geometry.dispose();
+        });
+
+        this.highlightObjects.faces = [];
+        this.highlightObjects.edges = [];
+    }
+
+    clearSelection(): void {
+        this.selectedFaces.clear();
+        this.selectedEdges.clear();
+        this.clearHighlights();
+        this.clearHover();
+        this.extrusionGizmo.hide();
+        console.log('Selection cleared.');
+    }
+
+    getSelectedFaces(): SelectedFace[] {
+        return Array.from(this.selectedFaces.values());
+    }
+
+    getSelectedEdges(): SelectedEdge[] {
+        return Array.from(this.selectedEdges.values());
+    }
+
+    // Update gizmo (called every frame)
+    update(): void {
+        this.extrusionGizmo.update();
+    }
+
+    // Utility method for face extrusion
+    extrudeFace(faceId: string, distance: number): THREE.BufferGeometry | null {
+        const face = this.selectedFaces.get(faceId);
+        if (!face) {
+            console.warn(`Face with ID ${faceId} not found for extrusion.`);
+            return null;
+        }
+
+        if (face.vertices.length < 3) {
+            console.error("Face has less than 3 vertices, cannot extrude.");
+            return null;
+        }
+
+        // Project face vertices to 2D for shape creation
+        const localVertices = this.projectFaceTo2D(face);
+        if (localVertices.length === 0) {
+            console.error("projectFaceTo2D returned no vertices. Check face planarity or basis vectors.");
+            return null;
+        }
+        console.log("Projected 2D vertices:", localVertices.map(v => `(${v.x.toFixed(4)}, ${v.y.toFixed(4)})`));
+
+
+        const shape = new THREE.Shape();
+        try {
+            shape.setFromPoints(localVertices);
+            // Check if the shape has a valid area. If area is near zero, it's degenerate.
+            // This is a simplified check; a proper triangulation library might be more robust.
+            if (shape.getArea() < 1e-6) { // Use a small epsilon
+                console.error("Projected 2D shape has near-zero area. Cannot extrude a degenerate face.");
+                return null;
+            }
+        } catch (e) {
+            console.error("Error creating THREE.Shape from projected points:", e);
+            return null;
+        }
+
+
+        const extrudeSettings = {
+            depth: distance,
+            bevelEnabled: false
+        };
+
+        const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
+        // Transform geometry to face orientation
+        const matrix = this.getFaceTransformMatrix(face);
+        geometry.applyMatrix4(matrix);
+
+        console.log(`Extruded geometry created for face ${faceId} with distance ${distance.toFixed(4)}.`);
+        // Optional: Log bounding box/sphere to verify scale and position
+        // geometry.computeBoundingBox();
+        // console.log("Extruded geometry bounding box:", geometry.boundingBox);
+
+        return geometry;
+    }
+
+    /**
+     * Projects the 3D vertices of a face onto a 2D plane defined by the face's normal
+     * and returns them as THREE.Vector2 points.
+     * This updated version aims for a more robust basis calculation.
+     */
+    private projectFaceTo2D(face: SelectedFace): THREE.Vector2[] {
+        const p0 = face.vertices[0];
+        const p1 = face.vertices[1];
+        const p2 = face.vertices[2];
+
+        // Ensure distinct points (though this should be handled by valid mesh geometry)
+        if (p0.equals(p1) || p0.equals(p2) || p1.equals(p2)) {
+            console.warn("Degenerate triangle detected in projectFaceTo2D. Vertices are not distinct.");
+            return [];
+        }
+
+        // Define primary axis (u-axis) along one edge
+        const uAxis = new THREE.Vector3().subVectors(p1, p0).normalize();
+
+        // Define secondary axis (v-axis)
+        // Ensure vAxis is orthogonal to normal and uAxis
+        // Using cross product between normal and uAxis gives a vector on the plane,
+        // orthogonal to uAxis.
+        const vAxis = new THREE.Vector3().crossVectors(face.normal, uAxis).normalize();
+
+        // Verify that uAxis, vAxis, and normal form a right-handed system (optional but good for consistency)
+        // If (uAxis x vAxis) dot normal is negative, it indicates a left-handed system relative to the normal
+        // This might affect winding order for THREE.Shape.
+        if (new THREE.Vector3().crossVectors(uAxis, vAxis).dot(face.normal) < 0) {
+            vAxis.negate(); // Flip vAxis to maintain consistent winding or right-handed system
+        }
+
+        const projectedVertices: THREE.Vector2[] = face.vertices.map(vertex => {
+            const local = new THREE.Vector3().subVectors(vertex, p0);
+            return new THREE.Vector2(local.dot(uAxis), local.dot(vAxis));
+        });
+
+        return projectedVertices;
+    }
+
+    /**
+     * Creates a transformation matrix to position and orient the extruded 2D geometry
+     * back into the 3D world space of the original face.
+     * The origin of this matrix is now aligned with the first vertex (p0) of the face,
+     * consistent with projectFaceTo2D.
+     */
+    private getFaceTransformMatrix(face: SelectedFace): THREE.Matrix4 {
+        const p0 = face.vertices[0];
+        const p1 = face.vertices[1];
+        const p2 = face.vertices[2];
+
+        // Use the same basis vectors as projectFaceTo2D for consistency
+        const uAxis = new THREE.Vector3().subVectors(p1, p0).normalize();
+        const normal = face.normal.clone();
+        const vAxis = new THREE.Vector3().crossVectors(normal, uAxis).normalize();
+
+        if (new THREE.Vector3().crossVectors(uAxis, vAxis).dot(normal) < 0) {
+            vAxis.negate();
+        }
+
+        const matrix = new THREE.Matrix4();
+        // makeBasis(xAxis, yAxis, zAxis)
+        matrix.makeBasis(uAxis, vAxis, normal); // X, Y, Z (where Z is the extrusion direction)
+        matrix.setPosition(p0); // Position the origin of the extrusion at p0
+
+        console.log('Face Transform Matrix (P0):', p0.toArray());
+        console.log('Face Transform Matrix (Basis):', uAxis.toArray(), vAxis.toArray(), normal.toArray());
+
+        return matrix;
+    }
+
+
+    private calculateTriangleArea(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3): number {
+        const ab = b.clone().sub(a);
+        const ac = c.clone().sub(a);
+        return ab.cross(ac).length() * 0.5;
+    }
+
+    // Get measurement between selected faces
+    getMeasurementBetweenFaces(): number | null {
+        const faces = Array.from(this.selectedFaces.values());
+        if (faces.length !== 2) return null;
+
+        return faces[0].center.distanceTo(faces[1].center);
+    }
+
+    dispose(): void {
+        this.clearSelection();
+        this.faceHighlightMaterial.dispose();
+        this.edgeHighlightMaterial.dispose();
+        this.hoverFaceMaterial.dispose();
+        this.hoverEdgeMaterial.dispose();
+        this.extrusionGizmo.dispose();
+        console.log('FaceEdgeSelector disposed.');
+    }
+}

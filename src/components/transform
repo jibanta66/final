@@ -1,0 +1,220 @@
+import React, { useRef, useEffect } from 'react';
+import * as THREE from 'three';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+
+interface TransformGizmoProps {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  renderer: THREE.WebGLRenderer;
+  selectedObject: THREE.Object3D | null;
+  mode: 'translate' | 'rotate' | 'scale';
+  onTransformStart?: () => void;
+  onTransformEnd?: () => void;
+  onTransform?: (object: THREE.Object3D) => void;
+  scaleFromCenter: boolean; // NEW PROP: Controls scaling behavior
+}
+
+export const TransformGizmo: React.FC<TransformGizmoProps> = ({
+  scene,
+  camera,
+  renderer,
+  selectedObject,
+  mode,
+  onTransformStart,
+  onTransformEnd,
+  onTransform,
+  scaleFromCenter, // Destructure new prop
+}) => {
+  const controlsRef = useRef<TransformControls | null>(null);
+  const originalScaleRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const originalPositionRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const originalSizeRef = useRef<THREE.Vector3>(new THREE.Vector3()); // Stores bounding box size at start of scale
+  const initialObjectWorldQuaternion = useRef<THREE.Quaternion>(new THREE.Quaternion()); // Store object's world rotation before scaling starts
+
+  useEffect(() => {
+    if (!scene || !camera || !renderer?.domElement) return;
+
+    // Create new TransformControls instance
+    const controls = new TransformControls(camera, renderer.domElement);
+    controlsRef.current = controls;
+
+    // Event listener for when dragging starts or ends
+    const handleDragChange = (event: THREE.Event) => {
+      const isDragging = (event as any).value as boolean;
+      if (isDragging) {
+        onTransformStart?.();
+        if (selectedObject && mode === 'scale' && !scaleFromCenter) {
+          // Store initial state only for one-sided scaling
+          originalScaleRef.current.copy(selectedObject.scale);
+          originalPositionRef.current.copy(selectedObject.position); // Local position
+
+          // Store world rotation for correct world-space offset application
+          selectedObject.getWorldQuaternion(initialObjectWorldQuaternion.current);
+
+          // Calculate and store original bounding box size *before* any scaling
+          const bbox = new THREE.Box3().setFromObject(selectedObject, true);
+          const size = new THREE.Vector3();
+          bbox.getSize(size);
+          originalSizeRef.current.copy(size);
+
+          // --- Debugging logs for start of transform (keep for now, remove if stable) ---
+          console.log('--- Transform Start (One-Sided) ---');
+          console.log('Selected Object:', selectedObject.name || selectedObject.uuid);
+          console.log('Initial Local Position:', selectedObject.position.toArray());
+          console.log('Initial Local Scale:', selectedObject.scale.toArray());
+          console.log('Initial World Quaternion:', initialObjectWorldQuaternion.current.toArray());
+          console.log('Initial Bounding Box Size (at drag start):', originalSizeRef.current.toArray());
+
+          if (originalSizeRef.current.x === 0 || originalSizeRef.current.y === 0 || originalSizeRef.current.z === 0) {
+            console.warn("TransformGizmo: Object has zero dimension in bounding box at start of scale! This may cause issues with one-sided scaling.", originalSizeRef.current.toArray());
+          }
+          if (isNaN(originalSizeRef.current.x) || isNaN(originalSizeRef.current.y) || isNaN(originalSizeRef.current.z)) {
+            console.error("TransformGizmo: Initial Bounding Box Size is NaN! One-sided scaling will fail.", originalSizeRef.current.toArray());
+          }
+          if (originalScaleRef.current.x === 0 || originalScaleRef.current.y === 0 || originalScaleRef.current.z === 0) {
+            console.warn("TransformGizmo: Object has zero original scale at start of scale! Division by zero possible.", originalScaleRef.current.toArray());
+          }
+        }
+      } else {
+        onTransformEnd?.();
+        console.log('--- Transform End ---');
+      }
+    };
+
+    // Transformation event: This will fire continuously during manipulation
+    const handleChange = () => {
+      if (!selectedObject) return;
+
+      // Only apply custom position adjustment if mode is 'scale' AND scaleFromCenter is false
+      if (mode === 'scale' && !scaleFromCenter) {
+        // Ensure initial values are valid
+        if (
+          isNaN(originalSizeRef.current.x) || originalSizeRef.current.x === 0 ||
+          isNaN(originalSizeRef.current.y) || originalSizeRef.current.y === 0 ||
+          isNaN(originalSizeRef.current.z) || originalSizeRef.current.z === 0 ||
+          isNaN(originalScaleRef.current.x) || originalScaleRef.current.x === 0 ||
+          isNaN(originalScaleRef.current.y) || originalScaleRef.current.y === 0 ||
+          isNaN(originalScaleRef.current.z) || originalScaleRef.current.z === 0
+        ) {
+          console.error("TransformGizmo: Invalid initial scale or size detected. Skipping one-sided scaling adjustment.");
+          onTransform?.(selectedObject); // Still call onTransform even if adjustment skipped
+          return;
+        }
+
+        // Get the current and original scales
+        const currentScale = selectedObject.scale;
+        const originalScale = originalScaleRef.current;
+        const initialSize = originalSizeRef.current;
+
+        // Calculate the scale change factor for each axis
+        const deltaX = currentScale.x / (originalScale.x || 1e-10);
+        const deltaY = currentScale.y / (originalScale.y || 1e-10);
+        const deltaZ = currentScale.z / (originalScale.z || 1e-10);
+
+        // Check for NaN or Infinity after division
+        if (isNaN(deltaX) || !isFinite(deltaX) || isNaN(deltaY) || !isFinite(deltaY) || isNaN(deltaZ) || !isFinite(deltaZ)) {
+          console.error("TransformGizmo: Calculated delta scale is NaN or Infinity. Skipping one-sided scaling adjustment.", { deltaX, deltaY, deltaZ });
+          onTransform?.(selectedObject);
+          return;
+        }
+
+        // Calculate the half-size change *in local space*
+        const halfChangeX = (initialSize.x * deltaX - initialSize.x) / 2;
+        const halfChangeY = (initialSize.y * deltaY - initialSize.y) / 2;
+        const halfChangeZ = (initialSize.z * deltaZ - initialSize.z) / 2;
+
+        // The offset vector in local space
+        const localOffset = new THREE.Vector3(halfChangeX, halfChangeY, halfChangeZ);
+
+        // Transform the local offset to world space based on the object's original rotation
+        const worldOffset = localOffset.clone().applyQuaternion(initialObjectWorldQuaternion.current);
+
+        // Apply the offset to the object's position
+        // This is crucial: reset to original local position before adding the world offset
+        // to prevent compounding transformations.
+        selectedObject.position.copy(originalPositionRef.current);
+        selectedObject.position.add(worldOffset);
+
+        // Check for NaN in final position
+        if (isNaN(selectedObject.position.x) || isNaN(selectedObject.position.y) || isNaN(selectedObject.position.z)) {
+            console.error("TransformGizmo: Final calculated position is NaN! Object may disappear.", selectedObject.position.toArray());
+            // Optionally, revert to original position or a safe default
+            // selectedObject.position.copy(originalPositionRef.current);
+        }
+
+        // Ensure the controls update to reflect the object's new position
+        // This is vital so the gizmo stays attached correctly to the moving object.
+        controls.updateMatrixWorld();
+
+      }
+      // Always call onTransform, regardless of scaling mode, to update parent state
+      onTransform?.(selectedObject);
+    };
+
+    // Add event listeners to the TransformControls instance
+    controls.addEventListener('dragging-changed', handleDragChange);
+    controls.addEventListener('change', handleChange);
+
+    // Add the controls to the scene so it's rendered
+    scene.add(controls);
+
+    // Cleanup function
+    return () => {
+      controls.removeEventListener('dragging-changed', handleDragChange);
+      controls.removeEventListener('change', handleChange);
+      scene.remove(controls);
+      controls.dispose(); // Important for releasing resources
+      controlsRef.current = null; // Clear ref on dispose
+    };
+  }, [
+    scene,
+    camera,
+    renderer,
+    onTransformStart,
+    onTransformEnd,
+    onTransform,
+    mode,
+    scaleFromCenter, // Dependency for this effect
+    selectedObject // Also a dependency because its initial state is captured
+  ]);
+
+  // Effect to update the transformation mode (translate, rotate, scale)
+  useEffect(() => {
+    if (controlsRef.current) {
+      controlsRef.current.setMode(mode);
+    }
+  }, [mode]);
+
+  // Effect to attach or detach the selected object to the TransformControls
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    if (selectedObject) {
+      // Before attaching, ensure the selected object is part of the scene graph
+      if (!selectedObject.parent) {
+        console.warn('TransformControls: selectedObject has no parent, cannot attach. It should be added to the scene or a parent first.');
+        controls.detach();
+        controls.visible = false;
+        return;
+      }
+      controls.attach(selectedObject);
+      controls.visible = true;
+    } else {
+      // If no object is selected, detach any existing object and hide controls
+      controls.detach();
+      controls.visible = false;
+    }
+
+    // Cleanup function for this effect: ensure controls are detached when component unmounts or selectedObject changes
+    return () => {
+      if (controls) {
+        controls.detach();
+        controls.visible = false;
+      }
+    };
+  }, [selectedObject]);
+
+  // This component doesn't render any DOM elements itself, it primarily manages the Three.js TransformControls
+  return null;
+};
