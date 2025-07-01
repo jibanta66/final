@@ -7,12 +7,11 @@ import React, { useEffect } from 'react';
 // Extend Window interface to include adsbygoogle
 
 declare global {
+ interface Window {
 
-  interface Window {
+adsbygoogle: unknown[];
 
-    adsbygoogle: unknown[];
-
-  }
+}
 
 }
 
@@ -40,9 +39,8 @@ const SmallAdSenseAd: React.FC<SmallAdSenseProps> = ({ adSlot, adClient }) => {
 
       } else {
 
-        console.warn("AdSense script not yet loaded or adsbygoogle not available for slot:", adSlot);
-
-      }
+console.warn("AdSense script not yet loaded or adsbygoogle not available for slot:", adSlot);
+ }
 
     } catch (e) {
 

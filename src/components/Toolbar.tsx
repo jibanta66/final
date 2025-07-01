@@ -278,13 +278,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* AdSense Ad Container - NOW RENDERING THE ACTUAL AD (if adSlotId is provided) */}
          <div
         className="mt-4 pt-4 border-t border-gray-700 bg-blue-700 text-white w-full mx-auto overflow-hidden flex items-center justify-center rounded-lg"
-        style={{ minHeight: '250px', maxWidth: '300px' }}
+        style={{ minHeight: '150px', maxWidth: '300px' }}
       >
         {adSlotId ? ( // <--- Conditional rendering for the AdSense component
           <SmallAdSenseAd adSlot={adSlotId} adClient="ca-pub-8789226455043624" />
         ) : (
           // This will be shown if adSlotId is NOT provided
-          <p className="text-xl font-bold">Ads</p>
+          <p className="text-xl font-bold">Ads here</p>
         )}
       </div>
       
