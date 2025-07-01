@@ -98,7 +98,7 @@ function App() {
   // AdSense Slot ID - REPLACE WITH YOUR ACTUAL AD SLOT ID from AdSense!
   // This is a placeholder. You must create an ad unit in your AdSense account
   // (e.g., a "Display Ad" or "Native Ad" unit) and copy its data-ad-slot ID here.
-  const AD_SLOT_ID = "YOUR_ADSENSE_AD_SLOT_ID"; // Example: "1234567890"
+  const AD_SLOT_ID = "3104715415"; // Example: "1234567890"
   const AD_CLIENT_ID = "ca-pub-8789226455043624"; // This is your publisher ID
 
   // Load settings on mount
