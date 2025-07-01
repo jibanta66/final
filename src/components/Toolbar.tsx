@@ -1,8 +1,10 @@
+// src/components/Toolbar.tsx
 import React from 'react';
-import { 
-  Box, Circle, Cylinder, Trash2, Move, RotateCcw, Scale, 
+import {
+  Box, Circle, Cylinder, Trash2, Move, RotateCcw, Scale,
   PenTool, Ruler, Lightbulb, Grid, Target, Layers, Plane, Upload
 } from 'lucide-react';
+import SmallAdSenseAd from './SmallAdSenseAd'; // Make sure this path is correct
 
 interface ToolbarProps {
   activeTool: string;
@@ -19,6 +21,7 @@ interface ToolbarProps {
   lightingPanelOpen: boolean;
   gridPanelOpen: boolean;
   sketchMode?: boolean;
+  adSlotId?: string; // <--- This prop
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -35,7 +38,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   measurementActive,
   lightingPanelOpen,
   gridPanelOpen,
-  sketchMode = false
+  sketchMode = false,
+  adSlotId // <--- Destructure it
 }) => {
   const basicTools = [
     { id: 'select', icon: Move, label: 'Select' },
@@ -51,40 +55,40 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   ];
 
   const advancedTools = [
-    { 
-      id: 'sketch', 
-      icon: sketchMode ? Plane : PenTool, 
+    {
+      id: 'sketch',
+      icon: sketchMode ? Plane : PenTool,
       label: sketchMode ? '3D Sketch Active' : '3D Sketch',
       action: onOpenSketch,
       active: sketchMode,
       description: sketchMode ? 'Exit sketch mode' : '3D sketching on any surface'
     },
-    { 
-      id: 'import', 
-      icon: Upload, 
+    {
+      id: 'import',
+      icon: Upload,
       label: 'Import 3D',
       action: onOpenImport,
       description: 'Import OBJ, STL, PLY files'
     },
-    { 
-      id: 'measurement', 
-      icon: Ruler, 
+    {
+      id: 'measurement',
+      icon: Ruler,
       label: 'Measurements',
       action: onToggleMeasurement,
       active: measurementActive,
       description: 'Distance, angle, and area tools'
     },
-    { 
-      id: 'lighting', 
-      icon: Lightbulb, 
+    {
+      id: 'lighting',
+      icon: Lightbulb,
       label: 'Lighting',
       action: onToggleLighting,
       active: lightingPanelOpen,
       description: 'Scene lighting controls'
     },
-    { 
-      id: 'grid', 
-      icon: Grid, 
+    {
+      id: 'grid',
+      icon: Grid,
       label: 'Grid',
       action: onToggleGrid,
       active: gridPanelOpen,
@@ -111,9 +115,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 className={`
                   flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200
                   ${sketchMode && tool.id !== 'select'
-                    ? 'text-gray-500 cursor-not-allowed' 
-                    : activeTool === tool.id 
-                      ? 'bg-blue-600 text-white shadow-lg' 
+                    ? 'text-gray-500 cursor-not-allowed'
+                    : activeTool === tool.id
+                      ? 'bg-blue-600 text-white shadow-lg'
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'
                   }
                 `}
@@ -173,9 +177,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 onClick={tool.action}
                 className={`
                   flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 group
-                  ${tool.active 
-                    ? tool.id === 'sketch' 
-                      ? 'bg-purple-600 text-white border-purple-500' 
+                  ${tool.active
+                    ? tool.id === 'sketch'
+                      ? 'bg-purple-600 text-white border-purple-500'
                       : 'bg-green-600 text-white border-green-500'
                     : 'text-gray-300 hover:bg-gray-700 hover:text-white border-gray-600 hover:border-gray-500'
                   }
@@ -268,6 +272,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </div>
         </div>
       )}
+     
+      
+      
+      {adSlotId && (
+        <div className="mt-auto pt-4 border-t border-gray-700">
+          <SmallAdSenseAd adSlot={adSlotId} adClient="ca-pub-8789226455043624" />
+        </div>
+      )}
+      
     </div>
   );
 };
