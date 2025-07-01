@@ -97,7 +97,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   ];
 
   return (
-    <div className="bg-gray-800 text-white p-4 flex flex-col gap-6 overflow-y-auto">
+    <div className="bg-gray-800 text-white p-4 flex flex-col gap-6 overflow-y-scroll">
       {/* Basic Tools */}
       <div>
         <h3 className="text-sm font-semibold mb-3 text-gray-300 flex items-center gap-2">
