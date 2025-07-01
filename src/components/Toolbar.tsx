@@ -4,7 +4,7 @@ import {
   Box, Circle, Cylinder, Trash2, Move, RotateCcw, Scale,
   PenTool, Ruler, Lightbulb, Grid, Target, Layers, Plane, Upload
 } from 'lucide-react';
-import SmallAdSenseAd from './SmallAdSenseAd'; // Make sure this path is correct
+import SmallAdSenseAd from './SmallAdSenseAd'; // <--- UNCOMMENTED THIS IMPORT
 
 interface ToolbarProps {
   activeTool: string;
@@ -21,7 +21,7 @@ interface ToolbarProps {
   lightingPanelOpen: boolean;
   gridPanelOpen: boolean;
   sketchMode?: boolean;
-  adSlotId?: string; // <--- This prop
+  adSlotId?: string; // This prop is correctly defined
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -39,7 +39,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   lightingPanelOpen,
   gridPanelOpen,
   sketchMode = false,
-  adSlotId // <--- Destructure it
+  adSlotId // This prop is correctly destructured
 }) => {
   const basicTools = [
     { id: 'select', icon: Move, label: 'Select' },
@@ -49,9 +49,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   ];
 
   const primitives = [
-    { id: 'cube', icon: Box, label: 'Cube' },
-    { id: 'sphere', icon: Circle, label: 'Sphere' },
-    { id: 'cylinder', icon: Cylinder, label: 'Cylinder' },
+    { id: 'cube', icon: Box, label: 'Cube', description: 'Add a cube to the scene' },
+    { id: 'sphere', icon: Circle, label: 'Sphere', description: 'Add a sphere to the scene' },
+    { id: 'cylinder', icon: Cylinder, label: 'Cylinder', description: 'Add a cylinder to the scene' },
   ];
 
   const advancedTools = [
@@ -153,6 +153,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     : 'text-gray-300 hover:bg-purple-600 hover:text-white border-gray-600 hover:border-purple-500'
                   }
                 `}
+                title={primitive.description}
               >
                 <IconComponent size={18} />
                 <span className="text-sm">{primitive.label}</span>
@@ -272,15 +273,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </div>
         </div>
       )}
-     
       
       
-      {adSlotId && (
-        <div className="mt-auto pt-4 border-t border-gray-700">
+      {/* AdSense Ad Container - NOW RENDERING THE ACTUAL AD (if adSlotId is provided) */}
+         <div
+        className="mt-4 pt-4 border-t border-gray-700 bg-blue-700 text-white w-full mx-auto overflow-hidden flex items-center justify-center rounded-lg"
+        style={{ minHeight: '250px', maxWidth: '300px' }}
+      >
+        {adSlotId ? ( // <--- Conditional rendering for the AdSense component
           <SmallAdSenseAd adSlot={adSlotId} adClient="ca-pub-8789226455043624" />
-        </div>
-      )}
+        ) : (
+          // This will be shown if adSlotId is NOT provided
+          <p className="text-xl font-bold">Ads</p>
+        )}
+      </div>
       
     </div>
+      
+    
   );
 };
