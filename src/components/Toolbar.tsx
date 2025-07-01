@@ -277,7 +277,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       
       {/* AdSense Ad Container - NOW RENDERING THE ACTUAL AD (if adSlotId is provided) */}
          <div
-        className="mt-4 pt-4 border-t border-gray-700 bg-blue-700 text-white w-full mx-auto overflow-hidden flex items-center justify-center rounded-lg"
+        className="mt-4 pt-4 border-t border-gray-700 bg-blue-700 text-white w-full mx-auto overflow-hidden  rounded-lg"
         style={{ minHeight: '150px', maxWidth: '300px' }}
       >
         {adSlotId ? ( // <--- Conditional rendering for the AdSense component
