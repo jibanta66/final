@@ -19,13 +19,12 @@ import { SketchShape3D } from './utils/sketch3d';
 import { SelectedFace } from './utils/FaceEdgeSelector';
 import { MeasurementEngine, Measurement } from './utils/measurement';
 import { Vec3 } from './utils/math';
-import { Save, Download, Settings, Layers, Upload, ChevronDown, Ruler, Lightbulb, Grid, ClipboardList, Package, PanelRightOpen, PanelRightClose, Target, DollarSign } from 'lucide-react'; // Import DollarSign for the ad panel
+import { Save, Download, Settings, Layers, Upload, ChevronDown, Ruler, Lightbulb, Grid, ClipboardList, Package, PanelRightOpen, PanelRightClose, Target } from 'lucide-react';
 import * as THREE from 'three';
 import { FileImport, ImportedFile } from './components/FileImport';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { CollapsiblePanel } from './components/CollapsiblePanel';
-import SmallAdSenseAd from './components/SmallAdSenseAd'; // <--- Import the AdSense component
 
 function App() {
   const [objects, setObjects] = useState<RenderObject[]>([]);
@@ -95,12 +94,6 @@ function App() {
 
   const mainContentRef = useRef<HTMLDivElement>(null);
 
-  // AdSense Slot ID - REPLACE WITH YOUR ACTUAL AD SLOT ID from AdSense!
-  // This is a placeholder. You must create an ad unit in your AdSense account
-  // (e.g., a "Display Ad" or "Native Ad" unit) and copy its data-ad-slot ID here.
-  const AD_SLOT_ID = "3104715415"; // Example: "1234567890"
-  const AD_CLIENT_ID = "ca-pub-8789226455043624"; // This is your publisher ID
-
   // Load settings on mount
   useEffect(() => {
     const savedSettings = localStorage.getItem('cad-settings');
@@ -118,10 +111,10 @@ function App() {
   useEffect(() => {
     if (userSettings?.colorSettings && viewportRendererRef.current) {
       const { gridColor, backgroundColor } = userSettings.colorSettings;
-
+      
       // Update background color
       viewportRendererRef.current.updateBackgroundColor(backgroundColor);
-
+      
       // Update grid color
       const hexToRgb = (hex: string) => {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -131,7 +124,7 @@ function App() {
           b: parseInt(result[3], 16) / 255
         } : { r: 0.5, g: 0.5, b: 0.5 };
       };
-
+      
       const gridRgb = hexToRgb(gridColor);
       setGridSettings(prev => ({
         ...prev,
@@ -259,7 +252,7 @@ function App() {
         rotation: new Vec3(0, 0, 0),
         scale: new Vec3(1, 1, 1),
         color,
-        selected,
+        selected: false,
         visible: true
       };
 
@@ -332,12 +325,12 @@ function App() {
     // This would be implemented to create new geometry from the extruded face
     // For now, we'll just log the action
     console.log(`Extruding face ${faceId} by ${distance} units`);
-
+    
     // In a real implementation, you would:
     // 1. Get the face geometry from the FaceEdgeSelector
     // 2. Create new extruded geometry
     // 3. Add it as a new object to the scene
-
+    
     // Example implementation:
     const face = selectedFaces.find(f => f.id === faceId);
     if (face) {
@@ -486,11 +479,11 @@ function App() {
     setObjects(prev => prev.map(obj =>
       obj.id === selectedObjectId
         ? {
-          ...obj,
-          position: new Vec3(0, 0, 0),
-          rotation: new Vec3(0, 0, 0),
-          scale: new Vec3(1, 1, 1)
-        }
+            ...obj,
+            position: new Vec3(0, 0, 0),
+            rotation: new Vec3(0, 0, 0),
+            scale: new Vec3(1, 1, 1)
+          }
         : obj
     ));
   }, [selectedObjectId]);
@@ -600,7 +593,7 @@ function App() {
   // Handle tool changes from keyboard shortcuts
   const handleToolChangeFromShortcut = useCallback((tool: string) => {
     setActiveTool(tool);
-
+    
     // Handle specific tool activations
     switch (tool) {
       case 'face-select':
@@ -824,7 +817,7 @@ function App() {
               <Save size={16} />
               Save Project
             </button>
-            <button
+            <button 
               onClick={() => setSettingsPanelOpen(true)}
               className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-sm"
             >
@@ -863,8 +856,6 @@ function App() {
             lightingPanelOpen={lightingPanelOpen}
             gridPanelOpen={gridPanelOpen}
             sketchMode={sketchMode}
-            // adSlotId is not passed to Toolbar since the ad will be in the right sidebar.
-            // If you still want an ad in the left toolbar (against advice), you'd pass it here.
           />
         </div>
         <div
@@ -919,23 +910,6 @@ function App() {
         >
           {isRightSidebarOpen ? (
             <div className="flex-1 overflow-y-auto h-full">
-              {/* AdSense Ad Unit - New Collapsible Panel */}
-              <CollapsiblePanel
-                title="Sponsored"
-                isOpen={true} // You might want to control this state, but for an ad, keeping it open is common.
-                onToggle={() => {}} // Ads usually don't have a toggle.
-                minimizedIcon={<DollarSign size={18} className="text-gray-400" />} // Using DollarSign icon
-              >
-                {AD_SLOT_ID !== "YOUR_ADSENSE_AD_SLOT_ID" ? ( // Check if ID is set
-                  <SmallAdSenseAd adSlot={AD_SLOT_ID} adClient={AD_CLIENT_ID} />
-                ) : (
-                  <p className="text-center text-xs text-gray-400 p-2">
-                    Please replace "YOUR_ADSENSE_AD_SLOT_ID" with your actual AdSense ad slot ID to display ads.
-                  </p>
-                )}
-              </CollapsiblePanel>
-              {/* END AdSense Ad Unit */}
-
               {/* Face Selection Panel */}
               {activeTool === 'face-select' && (
                 <CollapsiblePanel
@@ -1022,15 +996,6 @@ function App() {
             </div>
           ) : (
             <div className="flex flex-col items-center gap-4 py-4 w-full h-full transition-all duration-300 ease-in-out group-hover:w-[320px] group-hover:items-start group-hover:pl-4 group-hover:pr-2 group-hover:bg-gray-700">
-              {/* Minimized ad panel icon */}
-              <button
-                onClick={() => setIsRightSidebarOpen(true)} // Just open the sidebar, ad panel is always open when sidebar is.
-                className="p-2 rounded-lg hover:bg-gray-600 text-gray-400 relative group-hover:w-full group-hover:flex group-hover:items-center group-hover:justify-start"
-                title="Sponsored Content"
-              >
-                <DollarSign size={18} />
-                <span className="hidden group-hover:inline-block ml-2 text-sm text-gray-200">Sponsored</span>
-              </button>
               {activeTool === 'face-select' && (
                 <button
                   onClick={() => { setIsRightSidebarOpen(true); setFaceSelectionPanelOpen(!faceSelectionPanelOpen); }}

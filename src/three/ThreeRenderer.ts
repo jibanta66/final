@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Vec3 } from '../utils/math';
 import { MeasurementRenderer } from '../utils/MeasurementRenderer';
+import { DynamicMeasurementDisplay } from '../utils/DynamicMeasurementDisplay';
 import { Measurement } from '../utils/measurement';
 
 // Define a basic Vec3 class if it's not available, for standalone functionality.
@@ -122,6 +123,10 @@ export class ThreeRenderer {
     private measurementRenderer: MeasurementRenderer;
     private measurements: Measurement[] = [];
 
+    // Dynamic measurement display (NEW)
+    private dynamicMeasurementDisplay: DynamicMeasurementDisplay;
+    private selectedObjectId: string | null = null;
+
     constructor(canvas: HTMLCanvasElement) {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x1a1a1a); // Default background color
@@ -180,6 +185,9 @@ export class ThreeRenderer {
         // Initialize measurement renderer AFTER scene and camera are set up
         this.measurementRenderer = new MeasurementRenderer(this.scene, this.camera);
 
+        // Initialize dynamic measurement display (NEW)
+        this.dynamicMeasurementDisplay = new DynamicMeasurementDisplay(this.scene, this.camera);
+
         this.createGridHelpers();
         this.createAxes();
     }
@@ -219,6 +227,49 @@ export class ThreeRenderer {
      */
     getMeasurements(): Measurement[] {
         return [...this.measurements];
+    }
+
+    /**
+     * Show dynamic measurements for selected object (NEW)
+     */
+    showDynamicMeasurementsForObject(objectId: string): void {
+        const obj = this.objects.get(objectId);
+        if (!obj) return;
+
+        console.log('Showing dynamic measurements for object:', objectId);
+        this.selectedObjectId = objectId;
+        this.dynamicMeasurementDisplay.showMeasurementsForObject(objectId, obj.mesh);
+    }
+
+    /**
+     * Update dynamic measurements for object (NEW)
+     */
+    updateDynamicMeasurementsForObject(objectId: string): void {
+        const obj = this.objects.get(objectId);
+        if (!obj || this.selectedObjectId !== objectId) return;
+
+        console.log('Updating dynamic measurements for object:', objectId);
+        this.dynamicMeasurementDisplay.updateMeasurementsForObject(objectId, obj.mesh);
+    }
+
+    /**
+     * Hide dynamic measurements for object (NEW)
+     */
+    hideDynamicMeasurementsForObject(objectId: string): void {
+        console.log('Hiding dynamic measurements for object:', objectId);
+        this.dynamicMeasurementDisplay.hideDynamicMeasurementsForObject(objectId);
+        if (this.selectedObjectId === objectId) {
+            this.selectedObjectId = null;
+        }
+    }
+
+    /**
+     * Hide all dynamic measurements (NEW)
+     */
+    hideAllDynamicMeasurements(): void {
+        console.log('Hiding all dynamic measurements');
+        this.dynamicMeasurementDisplay.hideAllMeasurements();
+        this.selectedObjectId = null;
     }
 
     /**
@@ -293,6 +344,9 @@ export class ThreeRenderer {
     removeObject(id: string): void {
         const obj = this.objects.get(id);
         if (obj) {
+            // Hide dynamic measurements for this object
+            this.hideDynamicMeasurementsForObject(id);
+            
             this.scene.remove(obj.mesh);
             obj.mesh.geometry.dispose();
             if (obj.mesh.material instanceof THREE.Material) {
@@ -353,6 +407,18 @@ export class ThreeRenderer {
         if (updates.selected !== undefined) {
             obj.selected = updates.selected;
             this.updateSelectionHighlight(obj);
+            
+            // Show/hide dynamic measurements based on selection (NEW)
+            if (updates.selected) {
+                this.showDynamicMeasurementsForObject(id);
+            } else {
+                this.hideDynamicMeasurementsForObject(id);
+            }
+        }
+
+        // Update dynamic measurements if this object is selected and transform changed (NEW)
+        if (this.selectedObjectId === id && (updates.position || updates.rotation || updates.scale)) {
+            this.updateDynamicMeasurementsForObject(id);
         }
     }
 
@@ -425,6 +491,9 @@ export class ThreeRenderer {
         // Update measurement renderer before rendering
         this.measurementRenderer.update();
         
+        // Update dynamic measurement display (NEW)
+        this.dynamicMeasurementDisplay.update();
+        
         this.renderer.render(this.scene, this.camera);
     }
 
@@ -454,6 +523,9 @@ export class ThreeRenderer {
 
         // Dispose measurement renderer
         this.measurementRenderer.dispose();
+
+        // Dispose dynamic measurement display (NEW)
+        this.dynamicMeasurementDisplay.dispose();
 
         this.renderer.dispose();
     }
