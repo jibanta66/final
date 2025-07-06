@@ -34,9 +34,6 @@ interface Viewport3DProps {
     onFaceSelectionChange?: (faces: SelectedFace[]) => void;
     onFaceExtrude?: (faceId: string, distance: number) => void;
     measurements?: Measurement[];
-    // NEW PROPS for scale origin control
-    scaleFromCenter: boolean;
-    onScaleFromCenterChange: (fromCenter: boolean) => void;
 }
 
 export const Viewport3D = forwardRef<any, Viewport3DProps>(({
@@ -61,9 +58,7 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
     activeTool,
     onFaceSelectionChange,
     onFaceExtrude,
-    measurements = [],
-    scaleFromCenter, // Destructure new prop
-    onScaleFromCenterChange, // Destructure new prop
+    measurements = []
 }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const rendererRef = useRef<ThreeRenderer | null>(null);
@@ -117,7 +112,10 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
     // Keyboard event listeners
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (cameraControlsEnabled && !sketchMode && !measurementActive && activeTool !== 'face-select') {
+            // Camera controls are allowed if sketchMode is active AND the sketch engine isn't currently handling a mouse drag
+            // Also, still disable for measurementActive and face-select tools
+            const isSketchEngineDragging = sketchMode && sketchEngineRef.current?.isDragging();
+            if (cameraControlsEnabled && !measurementActive && activeTool !== 'face-select' && !isSketchEngineDragging) {
                 setPressedKeys((prev) => new Set(prev).add(e.key.toLowerCase()));
             }
         };
@@ -218,32 +216,36 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
     }, [pressedKeys, cameraControlsEnabled, updateCamera, onCameraUpdate, renderOnce]);
 
     useEffect(() => {
-        if (selectedObjectId) {
-            setCameraControlsEnabled(false);
-        } else {
-            setCameraControlsEnabled(true);
-        }
-    }, [selectedObjectId]);
+        // Camera controls should be enabled by default,
+        // and disabled only when an object is selected (for gizmo interaction)
+        // or when a measurement is active, or when face selection is active.
+        // Sketch mode now allows camera controls unless the sketch engine is actively dragging.
+        const shouldEnableCameraControls = !selectedObjectId && !measurementActive && activeTool !== 'face-select';
+        setCameraControlsEnabled(shouldEnableCameraControls);
+    }, [selectedObjectId, measurementActive, activeTool]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         // Handle face selection first
         if (activeTool === 'face-select' && faceEdgeSelectorRef.current && canvasRef.current) {
-            // Face selection doesn't use mouse down, just return
+            // Face selection doesn't use mouse down for camera, just return
             return;
         }
 
-        // Handle sketch events
+        // If in sketch mode, let the sketch engine handle the mouse down.
+        // If the sketch engine *starts* a drag operation, we temporarily disable camera controls.
         if (sketchMode && sketchEngineRef.current) {
             if (sketchEngineRef.current.handleMouseDown(e.nativeEvent)) {
-                setCameraControlsEnabled(false);
+                setCameraControlsEnabled(false); // Disable camera when sketch engine starts dragging
                 renderOnce();
                 return;
             }
         }
 
         // Camera controls
-        if (!cameraControlsEnabled) return;
-        if (measurementActive) return;
+        // If sketch mode is active and the sketch engine *did not* handle the event (meaning no sketch drag started)
+        // AND we are not in measurement or face-select mode, then allow camera controls.
+        if (!cameraControlsEnabled && !(sketchMode && !sketchEngineRef.current?.isDragging())) return;
+        if (measurementActive) return; // Still disable camera for measurement mode
 
         if (e.button === 0) cameraRef.current.orbiting = true;
         else if (e.button === 2) cameraRef.current.panning = true;
@@ -262,13 +264,16 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
         }
 
         // Handle sketch events
+        // Allow sketch engine to handle mouse move. If it returns true, it means it consumed the event.
         if (sketchMode && sketchEngineRef.current && sketchEngineRef.current.handleMouseMove(e.nativeEvent)) {
             renderOnce();
             return;
         }
 
         // Camera controls
-        if (!cameraControlsEnabled) return;
+        // If the sketch engine is currently dragging, we should not allow camera movement via mouse.
+        const isSketchEngineDragging = sketchMode && sketchEngineRef.current?.isDragging();
+        if (!cameraControlsEnabled || isSketchEngineDragging) return;
         if (measurementActive) return;
 
         if ((!cameraRef.current.orbiting && !cameraRef.current.panning)) return;
@@ -295,11 +300,12 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
         cameraRef.current.lastMouseX = e.clientX;
         cameraRef.current.lastMouseY = e.clientY;
         updateCamera();
-    }, [updateCamera, measurementActive, sketchMode, activeTool, objects, renderOnce, cameraControlsEnabled]); // Added cameraControlsEnabled
+    }, [updateCamera, measurementActive, sketchMode, activeTool, objects, renderOnce, cameraControlsEnabled]);
 
     const handleMouseUp = useCallback((e: React.MouseEvent) => {
+        // If the sketch engine handled the mouse up, re-enable camera controls.
         if (sketchMode && sketchEngineRef.current && sketchEngineRef.current.handleMouseUp(e.nativeEvent)) {
-            setCameraControlsEnabled(true);
+            setCameraControlsEnabled(true); // Re-enable camera after sketch drag finishes
             renderOnce();
             return;
         }
@@ -315,7 +321,7 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
 
     const handleCanvasClick = useCallback((e: React.MouseEvent) => {
         if (cameraRef.current.orbiting || cameraRef.current.panning || !rendererRef.current) return;
-
+        
         // Handle face selection
         if (activeTool === 'face-select' && faceEdgeSelectorRef.current && canvasRef.current) {
             const meshes = objects.map(obj => obj.mesh).filter(mesh => mesh.visible);
@@ -346,7 +352,7 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
                 renderOnce();
                 console.log('Measurement point added:', snappedPoint);
             }
-        } else if (!sketchMode && activeTool !== 'face-select') {
+        } else if (!sketchMode && activeTool !== 'face-select') { // Only allow object selection if not in sketch or face-select mode
             const objectId = rendererRef.current.getObjectAtPoint(x, y);
             onObjectSelect(objectId);
             renderOnce();
@@ -370,9 +376,12 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
 
     const handleTransformEnd = useCallback(() => {
         if (!selectedObjectId) {
-            setCameraControlsEnabled(true);
+            // Re-enable camera controls if no object is selected after transform,
+            // but consider other modes like sketchMode, measurementActive, activeTool.
+            const shouldEnable = !measurementActive && activeTool !== 'face-select' && !sketchMode;
+            setCameraControlsEnabled(shouldEnable);
         }
-    }, [selectedObjectId]);
+    }, [selectedObjectId, measurementActive, activeTool, sketchMode]);
 
     const handleTransform = useCallback((object: THREE.Object3D) => {
         if (!selectedObjectId || !onObjectTransform) return;
@@ -387,7 +396,7 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
     // Handle face extrusion
     const handleFaceExtrude = useCallback((faceId: string, distance: number) => {
         if (!faceEdgeSelectorRef.current || !onFaceExtrude) return;
-
+        
         const extrudedGeometry = faceEdgeSelectorRef.current.extrudeFace(faceId, distance);
         if (extrudedGeometry) {
             onFaceExtrude(faceId, distance);
@@ -403,15 +412,15 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
         try {
             rendererRef.current = new ThreeRenderer(canvas);
             sketchEngineRef.current = new SketchEngine3D(
-                rendererRef.current.getScene(),
-                rendererRef.current.getCamera(),
+                rendererRef.current.getScene(), 
+                rendererRef.current.getCamera(), 
                 rendererRef.current.getRenderer()
             );
             faceEdgeSelectorRef.current = new FaceEdgeSelector(
                 rendererRef.current.getScene(),
                 rendererRef.current.getCamera()
             );
-
+            
             updateCamera();
             setIsInitialized(true);
             renderOnce();
@@ -473,7 +482,7 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
             };
             onSketchSettingsChange(sketchAPI);
         }
-    }, [onSketchSettingsChange, isInitialized]);
+    }, [isInitialized, onSketchSettingsChange]);
 
     // Update objects
     const prevObjectsRef = useRef<Map<string, RenderObject>>(new Map());
@@ -494,14 +503,12 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
         for (const obj of objects) {
             const prev = prevObjects.get(obj.id);
 
-            // Add object if it's new
             if (!prev) {
                 if (obj.mesh && obj.mesh.geometry) {
                     rendererRef.current.addObject(obj.id, obj.mesh.geometry, obj.color);
                 }
             }
 
-            // Update object properties
             rendererRef.current.updateObject(obj.id, {
                 position: obj.position,
                 rotation: obj.rotation,
@@ -535,7 +542,7 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
 
     const getCursorStyle = () => {
         if (activeTool === 'face-select') return 'cursor-crosshair';
-        if (measurementActive || sketchMode) return 'cursor-crosshair';
+        if (measurementActive || (sketchMode && !sketchEngineRef.current?.isDragging())) return 'cursor-crosshair';
         if (cameraRef.current.orbiting) return 'cursor-grabbing';
         if (cameraRef.current.panning) return 'cursor-move';
         if (!cameraControlsEnabled) return 'cursor-default';
@@ -569,7 +576,6 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
                     onTransformStart={handleTransformStart}
                     onTransformEnd={handleTransformEnd}
                     onTransform={handleTransform}
-                    scaleFromCenter={scaleFromCenter} // Pass the new prop
                 />
             )}
 
@@ -594,10 +600,15 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
                         </>
                     ) : sketchMode ? (
                         <>
+                            <div>• Left-drag: Orbit • Right-drag: Pan</div>
+                            <div>• Scroll: Zoom</div>
+                            <div>• W/A/S/D: Move Camera</div>
+                            <div>• Q/E: Move Up/Down</div>
+                            <div>• Shift: Speed Up Movement</div>
+                            <div>---</div>
                             <div>• Click surfaces to create workplanes</div>
                             <div>• Draw directly on surfaces</div>
                             <div>• Double-click to finish polygons</div>
-                            <div>• Right-click: Pan • Scroll: Zoom</div>
                         </>
                     ) : measurementActive ? (
                         <>
@@ -702,22 +713,6 @@ export const Viewport3D = forwardRef<any, Viewport3DProps>(({
                         <div className={transformMode === 'rotate' ? 'text-blue-300 font-bold' : ''}>R - Rotate Object</div>
                         <div className={transformMode === 'scale' ? 'text-blue-300 font-bold' : ''}>S - Scale Object</div>
                         <div className="text-blue-400 mt-2">Use gizmo handles to transform</div>
-                        <hr className="border-blue-600 my-2" />
-                        {/* NEW: Scale Origin Toggle Button */}
-                        {transformMode === 'scale' && (
-                            <button
-                                className={`w-full px-3 py-1 rounded-md text-xs font-semibold flex items-center justify-center transition-colors duration-200 ${
-                                    scaleFromCenter ? 'bg-blue-700 hover:bg-blue-800' : 'bg-gray-600 hover:bg-gray-700'
-                                }`}
-                                onClick={() => onScaleFromCenterChange(!scaleFromCenter)}
-                                title={scaleFromCenter ? 'Currently scaling from center. Click to scale from one side.' : 'Currently scaling from one side. Click to scale from center.'}
-                            >
-                                <span className="mr-1">
-                                    {scaleFromCenter ? '↔' : '→'}
-                                </span>
-                                Scale From {scaleFromCenter ? 'Center' : 'Side'}
-                            </button>
-                        )}
                     </div>
                 </div>
             )}

@@ -75,6 +75,7 @@ export interface RenderObject {
     visible: boolean;
     originalMaterial?: THREE.Material;
     meshData?: any;
+    outlineMesh?: THREE.LineSegments; // Added for the dark edge outline
 }
 
 export interface LightSettings {
@@ -347,6 +348,14 @@ export class ThreeRenderer {
             // Hide dynamic measurements for this object
             this.hideDynamicMeasurementsForObject(id);
             
+            // Remove and dispose of the outline mesh if it exists
+            if (obj.outlineMesh) {
+                obj.mesh.remove(obj.outlineMesh);
+                obj.outlineMesh.geometry.dispose();
+                (obj.outlineMesh.material as THREE.Material).dispose();
+                obj.outlineMesh = undefined;
+            }
+
             this.scene.remove(obj.mesh);
             obj.mesh.geometry.dispose();
             if (obj.mesh.material instanceof THREE.Material) {
@@ -425,11 +434,28 @@ export class ThreeRenderer {
     private updateSelectionHighlight(obj: RenderObject): void {
         const material = obj.mesh.material as THREE.MeshPhongMaterial;
         if (obj.selected) {
+            // Apply emissive highlight
             material.emissive.setHex(0x004080);
             material.emissiveIntensity = 0.3;
+
+            // Add dark edges for selected object
+            const edges = new THREE.EdgesGeometry(obj.mesh.geometry);
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 }); // Dark color, adjust linewidth as needed
+            const outlineMesh = new THREE.LineSegments(edges, lineMaterial);
+            obj.mesh.add(outlineMesh); // Add outline as a child of the mesh
+            obj.outlineMesh = outlineMesh; // Store reference to the outline mesh
         } else {
+            // Remove emissive highlight
             material.emissive.setHex(0x000000);
             material.emissiveIntensity = 0;
+
+            // Remove dark edges if they exist
+            if (obj.outlineMesh) {
+                obj.mesh.remove(obj.outlineMesh);
+                obj.outlineMesh.geometry.dispose();
+                (obj.outlineMesh.material as THREE.Material).dispose();
+                obj.outlineMesh = undefined; // Clear the reference
+            }
         }
     }
 
@@ -505,6 +531,12 @@ export class ThreeRenderer {
 
     dispose(): void {
         this.objects.forEach(obj => {
+            // Dispose of the outline mesh if it exists
+            if (obj.outlineMesh) {
+                obj.mesh.remove(obj.outlineMesh);
+                obj.outlineMesh.geometry.dispose();
+                (obj.outlineMesh.material as THREE.Material).dispose();
+            }
             obj.mesh.geometry.dispose();
             if (obj.mesh.material instanceof THREE.Material) {
                 obj.mesh.material.dispose();

@@ -155,21 +155,27 @@ export class SketchEngine3D {
         return false;
     }
 
+    /**
+     * Handles double-click events, potentially finishing a sketch.
+     * @param event The native mouse event.
+     * @returns True if a sketch was completed/finished by this double-click, false otherwise.
+     */
     handleDoubleClick(event: MouseEvent): boolean {
         this.updateMousePosition(event); // Update mouse position on double click
 
-        if (this.currentTool === 'polygon' && this.currentShape) {
+        // Double-click to finish polygon
+        if (this.currentTool === 'polygon' && this.currentShape && this.currentShape.points.length >= 3) {
             this.finishPolygon();
-            return true;
+            return true; // Polygon finished
         }
 
         // Double-click to finish multi-line drawing
         if (this.currentTool === 'line' && this.isMultiLineMode && this.multiLinePoints.length >= 2) {
             this.finishMultiLine();
-            return true;
+            return true; // Multi-line finished
         }
 
-        return false;
+        return false; // No sketch completed by this double-click
     }
 
     // Tool-specific handlers
@@ -596,19 +602,19 @@ export class SketchEngine3D {
             // This needs a reference point. Let's use the current camera position as a reference point.
             // Or, for a more "flat" initial experience in empty space, project onto a default XZ plane.
             // For now, let's keep the camera-aligned plane, but make its origin responsive to the ray.
-            
+
             // To get a point on a "virtual" plane that the ray hits:
             // Define a virtual plane (e.g., at Y=0, or perpendicular to camera)
             // If the sketchMode is 'free' or no object is clicked, a common fallback is an XZ plane at some reasonable Y.
             // Let's use a virtual plane through the camera's lookAt target, or (0,0,0) if no target
             const target = new THREE.Vector3();
             this.camera.getWorldPosition(target); // Start from camera position
-            
+
             // This attempts to project the mouse ray onto an infinite plane
             // which can be either the XZ plane or perpendicular to camera.
             // For dynamic workplane, the fallback should probably be an XZ plane.
             const virtualPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // Y=0 plane
-            
+
             const intersectPoint = new THREE.Vector3();
             if (this.raycaster.ray.intersectPlane(virtualPlane, intersectPoint)) {
                 intersectionPoint = intersectPoint;

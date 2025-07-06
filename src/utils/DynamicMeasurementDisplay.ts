@@ -17,7 +17,7 @@ export interface MeasurementLine {
 export interface DynamicMeasurementOptions {
     lineColor: THREE.Color;
     textColor: string;
-    backgroundColor: string;
+    backgroundColor: string; // This will become less relevant for text background but kept for consistency if needed elsewhere
     fontSize: number;
     lineWidth: number;
     arrowSize: number;
@@ -25,9 +25,9 @@ export interface DynamicMeasurementOptions {
     precision: number;
     unit: string;
     showExtensionLines: boolean;
-    // New options for text padding and border radius (for modern look)
-    textPadding: number; // Added for text background padding
-    borderRadius: number; // Added for rounded corners on text background
+    // New options for text padding and border radius (for modern look) - will be ignored for text background
+    textPadding: number; 
+    borderRadius: number; 
 }
 
 export class DynamicMeasurementDisplay {
@@ -49,17 +49,17 @@ export class DynamicMeasurementDisplay {
         this.options = {
             // MODERN COLOR: A professional, slightly muted blue
             lineColor: new THREE.Color(0x66B2FF), // A nice light blue
-            textColor: '#FFFFFF', // White text for contrast
-            backgroundColor: 'rgba(30, 30, 30, 0.9)', // Darker, slightly transparent background for text
-            fontSize: 24, // **INCREASED FONT SIZE**
-            lineWidth: 3, // **THICKER LINES**
-            arrowSize: 0.2, // Slightly larger arrows for better visibility
+            textColor: '#FFFFFF', // White text for contrast (now more important as there's no background)
+            backgroundColor: 'rgba(30, 30, 30, 0.0)', // Make background fully transparent
+            fontSize: 20, // **DECREASED FONT SIZE**
+            lineWidth: 4, 
+            arrowSize: 0.2, 
             offset: 1.5,
             precision: 2,
             unit: 'mm',
             showExtensionLines: true,
-            textPadding: 15, // **ADDED PADDING FOR TEXT BACKGROUND**
-            borderRadius: 8 // **ADDED BORDER RADIUS FOR ROUNDED RECTANGLES**
+            textPadding: 0, 
+            borderRadius: 0 
         };
 
         this.initializeMaterials();
@@ -85,7 +85,7 @@ export class DynamicMeasurementDisplay {
 
         this.extensionLineMaterial = new THREE.LineBasicMaterial({
             color: this.options.lineColor,
-            linewidth: 1.5, // Slightly thicker than before, but still thinner than main line
+            linewidth: 1.5, 
             transparent: true,
             opacity: 0.6,
             depthTest: false, // Render on top
@@ -274,9 +274,9 @@ export class DynamicMeasurementDisplay {
         const textMetrics = context.measureText(text);
         const textWidth = textMetrics.width;
         
-        // Calculate canvas dimensions with padding
-        const canvasWidth = textWidth + this.options.textPadding * 2;
-        const canvasHeight = this.options.fontSize + this.options.textPadding * 2;
+        // Calculate canvas dimensions with minimal padding, as no background
+        const canvasWidth = textWidth + 4; // A little padding for crispness
+        const canvasHeight = this.options.fontSize + 4; // A little padding for crispness
         
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
@@ -287,18 +287,9 @@ export class DynamicMeasurementDisplay {
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         
-        // Draw background with rounded corners
-        context.fillStyle = this.options.backgroundColor;
-        this.roundRect(context, 0, 0, canvas.width, canvas.height, this.options.borderRadius);
-        context.fill();
+        // **Removed background and border drawing here**
         
-        // Draw border
-        context.strokeStyle = this.options.lineColor.getHexString();
-        context.lineWidth = 2; // Fixed border width for crispness
-        this.roundRect(context, 0, 0, canvas.width, canvas.height, this.options.borderRadius);
-        context.stroke();
-        
-        // Draw text
+        // Draw text directly
         context.fillStyle = this.options.textColor;
         context.fillText(text, canvas.width / 2, canvas.height / 2);
         
@@ -327,6 +318,7 @@ export class DynamicMeasurementDisplay {
 
     /**
      * Helper function to draw a rounded rectangle on a 2D canvas context.
+     * This function is now effectively unused for the text background but kept for completeness.
      * @param ctx The CanvasRenderingContext2D.
      * @param x The x-coordinate of the top-left corner.
      * @param y The y-coordinate of the top-left corner.
@@ -338,9 +330,9 @@ export class DynamicMeasurementDisplay {
         ctx.beginPath();
         ctx.moveTo(x + radius, y);
         ctx.lineTo(x + width - radius, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + radius); // Corrected this line
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
         ctx.lineTo(x + width, y + height - radius);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height); // Corrected this line
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
         ctx.lineTo(x + radius, y + height);
         ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
         ctx.lineTo(x, y + radius);
@@ -504,14 +496,15 @@ export class DynamicMeasurementDisplay {
                     measurement.textSprite.lookAt(this.camera.position);
                     
                     // Adjust sprite scale based on camera distance for consistent visual size
-                    // Tuned constants for a more stable and visible text size.
                     const distance = this.camera.position.distanceTo(measurement.textSprite.position);
-                    const scaleFactor = distance * 0.08; // Slightly increased base scale for larger text
-                    const finalScale = Math.max(0.7, Math.min(2.5, scaleFactor)); // Wider min/max for flexibility
+                    // Tuned these values for a smaller, more TinkerCAD-like appearance
+                    const scaleFactor = distance * 0.05; // Reduced base scale
+                    const finalScale = Math.max(0.5, Math.min(2.0, scaleFactor)); // Adjusted min/max for smaller range
                     
                     // Apply the scale to the sprite's original dimensions
-                    const originalWidthScale = measurement.textSprite.material.map ? measurement.textSprite.material.map.image.width / 20 : 1; // Base scale changed to 20
-                    const originalHeightScale = measurement.textSprite.material.map ? measurement.textSprite.material.map.image.height / 20 : 1; // Base scale changed to 20
+                    const canvasBaseScale = 25; // Slightly increased this to make the initial text texture seem smaller in world units
+                    const originalWidthScale = measurement.textSprite.material.map ? measurement.textSprite.material.map.image.width / canvasBaseScale : 1; 
+                    const originalHeightScale = measurement.textSprite.material.map ? measurement.textSprite.material.map.image.height / canvasBaseScale : 1; 
 
                     measurement.textSprite.scale.set(
                         originalWidthScale * finalScale,
@@ -523,8 +516,8 @@ export class DynamicMeasurementDisplay {
                 // Update arrow sizes based on camera distance for consistent visual size
                 measurement.arrows.forEach(arrow => {
                     const distance = this.camera.position.distanceTo(arrow.position);
-                    const scale = Math.max(0.08, Math.min(0.3, distance * 0.015)); // Tuned constants for arrow scaling
-                    arrow.scale.set(scale, scale, scale); // Apply uniform scale
+                    const scale = Math.max(0.08, Math.min(0.3, distance * 0.015)); 
+                    arrow.scale.set(scale, scale, scale); 
                 });
             });
         });
@@ -543,9 +536,6 @@ export class DynamicMeasurementDisplay {
         const currentlyDisplayedObjectIds = Array.from(this.measurementLines.keys());
         if (currentlyDisplayedObjectIds.length > 0) {
             console.warn("setOptions called. To fully apply new options, objects whose measurements are displayed might need to be re-selected/re-displayed by ThreeRenderer.");
-            // A more robust solution would involve passing the mesh from ThreeRenderer to here
-            // or making DynamicMeasurementDisplay aware of the meshes it's displaying measurements for.
-            // For now, we just rely on hide/show to refresh, which requires the mesh.
         }
     }
 
