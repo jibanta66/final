@@ -26,8 +26,8 @@ export interface DynamicMeasurementOptions {
     unit: string;
     showExtensionLines: boolean;
     // New options for text padding and border radius (for modern look) - will be ignored for text background
-    textPadding: number; 
-    borderRadius: number; 
+    textPadding: number;
+    borderRadius: number;
 }
 
 export class DynamicMeasurementDisplay {
@@ -35,7 +35,7 @@ export class DynamicMeasurementDisplay {
     private camera: THREE.PerspectiveCamera;
     private measurementLines: Map<string, MeasurementLine[]> = new Map();
     private options: DynamicMeasurementOptions;
-    
+
     // Materials
     private lineMaterial: THREE.LineBasicMaterial;
     private extensionLineMaterial: THREE.LineBasicMaterial;
@@ -45,21 +45,21 @@ export class DynamicMeasurementDisplay {
         this.scene = scene;
         this.camera = camera;
         console.log("DynamicMeasurementDisplay initialized.");
-        
+
         this.options = {
             // MODERN COLOR: A professional, slightly muted blue
             lineColor: new THREE.Color(0x66B2FF), // A nice light blue
             textColor: '#FFFFFF', // White text for contrast (now more important as there's no background)
             backgroundColor: 'rgba(30, 30, 30, 0.0)', // Make background fully transparent
             fontSize: 20, // **DECREASED FONT SIZE**
-            lineWidth: 4, 
-            arrowSize: 0.2, 
-            offset: 1.5,
+            lineWidth: 4,
+            arrowSize: 0.2,
+            offset: 1.5, // Main offset for measurement lines from the object
             precision: 2,
             unit: 'mm',
             showExtensionLines: true,
-            textPadding: 0, 
-            borderRadius: 0 
+            textPadding: 0,
+            borderRadius: 0
         };
 
         this.initializeMaterials();
@@ -85,7 +85,7 @@ export class DynamicMeasurementDisplay {
 
         this.extensionLineMaterial = new THREE.LineBasicMaterial({
             color: this.options.lineColor,
-            linewidth: 1.5, 
+            linewidth: 1.5,
             transparent: true,
             opacity: 0.6,
             depthTest: false, // Render on top
@@ -110,7 +110,7 @@ export class DynamicMeasurementDisplay {
      */
     showMeasurementsForObject(objectId: string, mesh: THREE.Mesh): void {
         console.log('Showing measurements for object:', objectId);
-        
+
         // Remove existing measurements for this object before creating new ones
         this.hideDynamicMeasurementsForObject(objectId);
 
@@ -131,40 +131,52 @@ export class DynamicMeasurementDisplay {
 
         const measurements: MeasurementLine[] = [];
 
-        // Create width measurement (along X-axis)
+        const mainOffset = this.options.offset;
+        const extensionLineInitialOffset = 0.2; // Small gap from the object boundary for extension lines
+
+        // --- Width Measurement (along X-axis) ---
+        // Positioned above the object (positive Y) and slightly forward (positive Z)
+        const widthLineStart = new THREE.Vector3(boundingBox.min.x, boundingBox.max.y + mainOffset, boundingBox.max.z + mainOffset);
+        const widthLineEnd = new THREE.Vector3(boundingBox.max.x, boundingBox.max.y + mainOffset, boundingBox.max.z + mainOffset);
         const widthMeasurement = this.createMeasurementLine(
             'width',
-            new THREE.Vector3(boundingBox.min.x, boundingBox.max.y + this.options.offset, center.z),
-            new THREE.Vector3(boundingBox.max.x, boundingBox.max.y + this.options.offset, center.z),
+            widthLineStart,
+            widthLineEnd,
             size.x,
             `${(size.x * 10).toFixed(this.options.precision)} ${this.options.unit}` // Convert meters to millimeters
         );
         measurements.push(widthMeasurement);
 
-        // Create height measurement (along Y-axis)
+        // --- Height Measurement (along Y-axis) ---
+        // Positioned to the right of the object (positive X) and slightly forward (positive Z)
+        const heightLineStart = new THREE.Vector3(boundingBox.max.x + mainOffset, boundingBox.min.y, boundingBox.max.z + mainOffset);
+        const heightLineEnd = new THREE.Vector3(boundingBox.max.x + mainOffset, boundingBox.max.y, boundingBox.max.z + mainOffset);
         const heightMeasurement = this.createMeasurementLine(
             'height',
-            new THREE.Vector3(boundingBox.max.x + this.options.offset, boundingBox.min.y, center.z),
-            new THREE.Vector3(boundingBox.max.x + this.options.offset, boundingBox.max.y, center.z),
+            heightLineStart,
+            heightLineEnd,
             size.y,
             `${(size.y * 10).toFixed(this.options.precision)} ${this.options.unit}` // Convert meters to millimeters
         );
         measurements.push(heightMeasurement);
 
-        // Create depth measurement (along Z-axis)
-        // Adjust position for depth measurement to avoid overlap with width/height
+        // --- Depth Measurement (along Z-axis) ---
+        // Positioned to the left of the object (negative X) and slightly above (positive Y)
+        const depthLineStart = new THREE.Vector3(boundingBox.min.x - mainOffset, boundingBox.max.y + mainOffset, boundingBox.min.z);
+        const depthLineEnd = new THREE.Vector3(boundingBox.min.x - mainOffset, boundingBox.max.y + mainOffset, boundingBox.max.z);
         const depthMeasurement = this.createMeasurementLine(
             'depth',
-            new THREE.Vector3(center.x, boundingBox.max.y + this.options.offset, boundingBox.min.z),
-            new THREE.Vector3(center.x, boundingBox.max.y + this.options.offset, boundingBox.max.z),
+            depthLineStart,
+            depthLineEnd,
             size.z,
             `${(size.z * 10).toFixed(this.options.precision)} ${this.options.unit}` // Convert meters to millimeters
         );
         measurements.push(depthMeasurement);
 
+
         // Add extension lines if enabled
         if (this.options.showExtensionLines) {
-            this.addExtensionLines(measurements, boundingBox);
+            this.addExtensionLines(measurements, boundingBox, extensionLineInitialOffset);
         }
 
         // Store measurements associated with the object ID
@@ -209,8 +221,24 @@ export class DynamicMeasurementDisplay {
         const arrows = this.createArrows(startPoint, endPoint, direction);
 
         // Create text sprite at the midpoint of the line
-        const midPoint = startPoint.clone().add(endPoint).divideScalar(2);
-        const textSprite = this.createTextSprite(label, midPoint);
+        const midPoint = startPoint.clone().add(endPoint).multiplyScalar(0.5);
+
+        const textOffsetFromLine = 0.5; // Offset to push text away from the line
+
+        // Calculate perpendicular offset for text position based on line orientation
+        let textSpritePosition = midPoint.clone();
+        if (type === 'width') {
+            // Width line is X-oriented, text should be slightly above it (positive Y)
+            textSpritePosition.y += textOffsetFromLine;
+        } else if (type === 'height') {
+            // Height line is Y-oriented, text should be slightly to its right (positive X)
+            textSpritePosition.x += textOffsetFromLine;
+        } else if (type === 'depth') {
+            // Depth line is Z-oriented, text should be slightly to its left (negative X)
+            textSpritePosition.x -= textOffsetFromLine;
+        }
+
+        const textSprite = this.createTextSprite(label, textSpritePosition);
 
         return {
             id,
@@ -237,15 +265,15 @@ export class DynamicMeasurementDisplay {
         const arrows: THREE.Mesh[] = [];
         // Cone geometry for arrowheads
         const arrowGeometry = new THREE.ConeGeometry(this.options.arrowSize * 0.5, this.options.arrowSize, 8);
-        
+
         // Arrow at the start point, rotated to point towards the end
         const startArrow = new THREE.Mesh(arrowGeometry, this.arrowMaterial);
         startArrow.position.copy(start);
         startArrow.lookAt(start.clone().add(direction)); // Point along the line
-        startArrow.rotateX(Math.PI / 2); // Rotate to align cone with line
+        startArrow.rotateX(Math.PI / 2); // Rotate to align cone with line (assuming cone points along Y by default)
         startArrow.renderOrder = 1001; // Render on top of lines
         arrows.push(startArrow);
-        
+
         // Arrow at the end point, rotated to point towards the start
         const endArrow = new THREE.Mesh(arrowGeometry, this.arrowMaterial);
         endArrow.position.copy(end);
@@ -253,7 +281,7 @@ export class DynamicMeasurementDisplay {
         endArrow.rotateX(Math.PI / 2); // Rotate to align cone with line
         endArrow.renderOrder = 1001; // Render on top of lines
         arrows.push(endArrow);
-        
+
         return arrows;
     }
 
@@ -267,52 +295,50 @@ export class DynamicMeasurementDisplay {
     private createTextSprite(text: string, position: THREE.Vector3): THREE.Sprite {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d')!;
-        
+
         // Use a temporary size to measure text accurately
         context.font = `bold ${this.options.fontSize}px Arial`;
-        
+
         const textMetrics = context.measureText(text);
         const textWidth = textMetrics.width;
-        
+
         // Calculate canvas dimensions with minimal padding, as no background
         const canvasWidth = textWidth + 4; // A little padding for crispness
         const canvasHeight = this.options.fontSize + 4; // A little padding for crispness
-        
+
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
-        
+
         // Clear and redraw with correct size
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.font = `bold ${this.options.fontSize}px Arial`;
         context.textAlign = 'center';
         context.textBaseline = 'middle';
-        
-        // **Removed background and border drawing here**
-        
+
         // Draw text directly
         context.fillStyle = this.options.textColor;
         context.fillText(text, canvas.width / 2, canvas.height / 2);
-        
+
         // Create texture from canvas and then a sprite
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
-        
+
         const spriteMaterial = new THREE.SpriteMaterial({
             map: texture,
             transparent: true,
             depthTest: false,
             depthWrite: false
         });
-        
+
         const sprite = new THREE.Sprite(spriteMaterial);
         sprite.position.copy(position);
-        
+
         // Initial scale. The `update()` method will further adjust this for consistent visual size.
         // We now use `canvas.width / 20` and `canvas.height / 20` as a base scale.
         // The factor (e.g., 20) determines how big the text appears initially in world units.
         sprite.scale.set(canvas.width / 20, canvas.height / 20, 1);
         sprite.renderOrder = 1002;
-        
+
         return sprite;
     }
 
@@ -344,60 +370,67 @@ export class DynamicMeasurementDisplay {
      * Adds extension lines from the object's bounding box to the measurement lines.
      * @param measurements An array of MeasurementLine objects.
      * @param boundingBox The world-space bounding box of the object.
+     * @param initialOffset A small offset to create a gap between the object and the extension line start.
      */
-    private addExtensionLines(measurements: MeasurementLine[], boundingBox: THREE.Box3): void {
-        const extensionOffset = 0.1; // Small offset for extension lines from bounding box
+    private addExtensionLines(measurements: MeasurementLine[], boundingBox: THREE.Box3, initialOffset: number): void {
         measurements.forEach(measurement => {
             const extensionLines: THREE.Line[] = [];
-            
+
             if (measurement.type === 'width') {
-                // Extension lines for width measurement (from min.x and max.x of bounding box)
-                const ext1Start = new THREE.Vector3(boundingBox.min.x, boundingBox.max.y, measurement.startPoint.z);
-                const ext1End = measurement.startPoint.clone();
+                // Extension lines for width measurement
+                // From object's corners (min.x, max.y, max.z) and (max.x, max.y, max.z)
+                // to the width measurement line (which is above and forward)
+                const ext1Start = new THREE.Vector3(boundingBox.min.x, boundingBox.max.y + initialOffset, boundingBox.max.z + initialOffset);
+                const ext1End = new THREE.Vector3(boundingBox.min.x, measurement.startPoint.y, measurement.startPoint.z);
                 const ext1Geometry = new THREE.BufferGeometry().setFromPoints([ext1Start, ext1End]);
                 const ext1 = new THREE.Line(ext1Geometry, this.extensionLineMaterial);
                 ext1.renderOrder = 999;
                 extensionLines.push(ext1);
-                
-                const ext2Start = new THREE.Vector3(boundingBox.max.x, boundingBox.max.y, measurement.endPoint.z);
-                const ext2End = measurement.endPoint.clone();
+
+                const ext2Start = new THREE.Vector3(boundingBox.max.x, boundingBox.max.y + initialOffset, boundingBox.max.z + initialOffset);
+                const ext2End = new THREE.Vector3(boundingBox.max.x, measurement.endPoint.y, measurement.endPoint.z);
                 const ext2Geometry = new THREE.BufferGeometry().setFromPoints([ext2Start, ext2End]);
                 const ext2 = new THREE.Line(ext2Geometry, this.extensionLineMaterial);
                 ext2.renderOrder = 999;
                 extensionLines.push(ext2);
+
             } else if (measurement.type === 'height') {
-                // Extension lines for height measurement (from min.y and max.y of bounding box)
-                const ext1Start = new THREE.Vector3(boundingBox.max.x, boundingBox.min.y, measurement.startPoint.z);
-                const ext1End = measurement.startPoint.clone();
+                // Extension lines for height measurement
+                // From object's corners (max.x, min.y, max.z) and (max.x, max.y, max.z)
+                // to the height measurement line (which is to the right and forward)
+                const ext1Start = new THREE.Vector3(boundingBox.max.x + initialOffset, boundingBox.min.y, boundingBox.max.z + initialOffset);
+                const ext1End = new THREE.Vector3(measurement.startPoint.x, boundingBox.min.y, measurement.startPoint.z);
                 const ext1Geometry = new THREE.BufferGeometry().setFromPoints([ext1Start, ext1End]);
                 const ext1 = new THREE.Line(ext1Geometry, this.extensionLineMaterial);
                 ext1.renderOrder = 999;
                 extensionLines.push(ext1);
-                
-                const ext2Start = new THREE.Vector3(boundingBox.max.x, boundingBox.max.y, measurement.endPoint.z);
-                const ext2End = measurement.endPoint.clone();
+
+                const ext2Start = new THREE.Vector3(boundingBox.max.x + initialOffset, boundingBox.max.y, boundingBox.max.z + initialOffset);
+                const ext2End = new THREE.Vector3(measurement.endPoint.x, boundingBox.max.y, measurement.endPoint.z);
                 const ext2Geometry = new THREE.BufferGeometry().setFromPoints([ext2Start, ext2End]);
                 const ext2 = new THREE.Line(ext2Geometry, this.extensionLineMaterial);
                 ext2.renderOrder = 999;
                 extensionLines.push(ext2);
+
             } else if (measurement.type === 'depth') {
-                // Extension lines for depth measurement (from min.z and max.z of bounding box)
-                // Note: These might need careful positioning to not overlap with other measurements
-                const ext1Start = new THREE.Vector3(measurement.startPoint.x, boundingBox.max.y, boundingBox.min.z);
-                const ext1End = measurement.startPoint.clone();
+                // Extension lines for depth measurement
+                // From object's corners (min.x, max.y, min.z) and (min.x, max.y, max.z)
+                // to the depth measurement line (which is to the left and above)
+                const ext1Start = new THREE.Vector3(boundingBox.min.x - initialOffset, boundingBox.max.y + initialOffset, boundingBox.min.z);
+                const ext1End = new THREE.Vector3(measurement.startPoint.x, measurement.startPoint.y, boundingBox.min.z);
                 const ext1Geometry = new THREE.BufferGeometry().setFromPoints([ext1Start, ext1End]);
                 const ext1 = new THREE.Line(ext1Geometry, this.extensionLineMaterial);
                 ext1.renderOrder = 999;
                 extensionLines.push(ext1);
-                
-                const ext2Start = new THREE.Vector3(measurement.endPoint.x, boundingBox.max.y, boundingBox.max.z);
-                const ext2End = measurement.endPoint.clone();
+
+                const ext2Start = new THREE.Vector3(boundingBox.min.x - initialOffset, boundingBox.max.y + initialOffset, boundingBox.max.z);
+                const ext2End = new THREE.Vector3(measurement.endPoint.x, measurement.endPoint.y, boundingBox.max.z);
                 const ext2Geometry = new THREE.BufferGeometry().setFromPoints([ext2Start, ext2End]);
                 const ext2 = new THREE.Line(ext2Geometry, this.extensionLineMaterial);
                 ext2.renderOrder = 999;
                 extensionLines.push(ext2);
             }
-            
+
             measurement.extensionLines = extensionLines;
         });
     }
@@ -418,7 +451,7 @@ export class DynamicMeasurementDisplay {
             this.scene.remove(measurement.textSprite);
             measurement.arrows.forEach(arrow => this.scene.remove(arrow));
             measurement.extensionLines.forEach(extLine => this.scene.remove(extLine));
-            
+
             // Dispose geometries and materials to prevent memory leaks
             measurement.line.geometry.dispose();
             if (measurement.textSprite.material.map) {
@@ -457,7 +490,7 @@ export class DynamicMeasurementDisplay {
             this.scene.remove(measurement.textSprite);
             measurement.arrows.forEach(arrow => this.scene.remove(arrow));
             measurement.extensionLines.forEach(extLine => this.scene.remove(extLine));
-            
+
             // Dispose geometries and materials
             measurement.line.geometry.dispose();
             if (measurement.textSprite.material.map) {
@@ -494,17 +527,17 @@ export class DynamicMeasurementDisplay {
                 if (measurement.textSprite) {
                     // Make text sprite always face the camera
                     measurement.textSprite.lookAt(this.camera.position);
-                    
+
                     // Adjust sprite scale based on camera distance for consistent visual size
                     const distance = this.camera.position.distanceTo(measurement.textSprite.position);
                     // Tuned these values for a smaller, more TinkerCAD-like appearance
                     const scaleFactor = distance * 0.05; // Reduced base scale
                     const finalScale = Math.max(0.5, Math.min(2.0, scaleFactor)); // Adjusted min/max for smaller range
-                    
+
                     // Apply the scale to the sprite's original dimensions
                     const canvasBaseScale = 25; // Slightly increased this to make the initial text texture seem smaller in world units
-                    const originalWidthScale = measurement.textSprite.material.map ? measurement.textSprite.material.map.image.width / canvasBaseScale : 1; 
-                    const originalHeightScale = measurement.textSprite.material.map ? measurement.textSprite.material.map.image.height / canvasBaseScale : 1; 
+                    const originalWidthScale = measurement.textSprite.material.map ? measurement.textSprite.material.map.image.width / canvasBaseScale : 1;
+                    const originalHeightScale = measurement.textSprite.material.map ? measurement.textSprite.material.map.image.height / canvasBaseScale : 1;
 
                     measurement.textSprite.scale.set(
                         originalWidthScale * finalScale,
@@ -516,8 +549,8 @@ export class DynamicMeasurementDisplay {
                 // Update arrow sizes based on camera distance for consistent visual size
                 measurement.arrows.forEach(arrow => {
                     const distance = this.camera.position.distanceTo(arrow.position);
-                    const scale = Math.max(0.08, Math.min(0.3, distance * 0.015)); 
-                    arrow.scale.set(scale, scale, scale); 
+                    const scale = Math.max(0.08, Math.min(0.3, distance * 0.015));
+                    arrow.scale.set(scale, scale, scale);
                 });
             });
         });
@@ -531,7 +564,6 @@ export class DynamicMeasurementDisplay {
         this.options = { ...this.options, ...options };
         this.initializeMaterials(); // Re-initialize materials with new colors/linewidths
         // Re-render all existing measurements with new options (optional, but good for consistency)
-        // This part might need the actual mesh reference, which ThreeRenderer can provide
         // For simplicity, this will re-show all currently displayed measurements.
         const currentlyDisplayedObjectIds = Array.from(this.measurementLines.keys());
         if (currentlyDisplayedObjectIds.length > 0) {
