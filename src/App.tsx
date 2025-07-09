@@ -864,7 +864,7 @@ function App() {
         />
 
         {/* Viewport */}
-        <div ref={viewportRef} className="w-full relative h-full">
+        <div ref={viewportRef} className="flex-1 relative h-full">
           <Viewport3D
             ref={viewportRendererRef}
             objects={objects}
