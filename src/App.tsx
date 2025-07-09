@@ -864,7 +864,7 @@ function App() {
         />
 
         {/* Viewport */}
-        <div ref={viewportRef} className="flex-1 relative h-full">
+        <div ref={viewportRef} className="w-full relative h-full">
           <Viewport3D
             ref={viewportRendererRef}
             objects={objects}
@@ -900,14 +900,13 @@ function App() {
         )}
 
         {/* Right sidebar */}
-        <div
-          className={`border-l border-gray-700 flex flex-col bg-gray-800 transition-all duration-300 ease-in-out ${
-            isRightSidebarOpen
-              ? 'flex-shrink-0 h-full'
-              : 'absolute top-0 right-0 h-full z-50 group overflow-hidden'
-          }`}
-          style={{ width: isRightSidebarOpen ? rightSidebarWidth : '50px' }}
-        >
+       <div
+  className={`absolute top-0 right-0 h-full z-50 bg-gray-800 border-l border-gray-700 transition-all duration-300 ease-in-out ${
+    isRightSidebarOpen ? 'flex flex-col' : 'group overflow-hidden'
+  }`}
+  style={{ width: isRightSidebarOpen ? rightSidebarWidth : '50px' }}
+>
+
           {isRightSidebarOpen ? (
             <div className="flex-1 overflow-y-auto h-full">
               {/* Face Selection Panel */}
